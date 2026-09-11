@@ -67,10 +67,25 @@ func (v VersionResolver) ResolveVersion(ctx context.Context, intent binny.Versio
 	return want, nil
 }
 
-func headCommit(repoPath string) (string, error) {
-	r, err := git.PlainOpen(repoPath)
+// openRepo opens the repo that the given path belongs to. Both options are needed for paths that
+// are not a plain repo root: DetectDotGit walks up so a module subdirectory (e.g. ./cmd/tool)
+// finds the root, and EnableDotGitCommonDir handles a linked worktree, where .git is a file
+// pointing at <main>/.git/worktrees/<name> and refs (HEAD, tags) live in the common dir.
+func openRepo(repoPath string) (*git.Repository, error) {
+	r, err := git.PlainOpenWithOptions(repoPath, &git.PlainOpenOptions{
+		DetectDotGit:          true,
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
-		return "", fmt.Errorf("unable to open repo: %w", err)
+		return nil, fmt.Errorf("unable to open repo: %w", err)
+	}
+	return r, nil
+}
+
+func headCommit(repoPath string) (string, error) {
+	r, err := openRepo(repoPath)
+	if err != nil {
+		return "", err
 	}
 	ref, err := r.Head()
 	if err != nil {
@@ -80,9 +95,9 @@ func headCommit(repoPath string) (string, error) {
 }
 
 func byReference(repoPath, ref string) (string, error) {
-	r, err := git.PlainOpen(repoPath)
+	r, err := openRepo(repoPath)
 	if err != nil {
-		return "", fmt.Errorf("unable to open repo: %w", err)
+		return "", err
 	}
 
 	// try by tag first...
@@ -98,9 +113,11 @@ func byReference(repoPath, ref string) (string, error) {
 	}
 
 	// then by hash...
+	// note: a non-hash ref yields the zero hash here, which is simply not found (allowing the
+	// branch fallback below to take over)
 	commit, err := r.CommitObject(plumbing.NewHash(ref))
 	if err != nil {
-		if !errors.Is(err, plumbing.ErrReferenceNotFound) {
+		if !errors.Is(err, plumbing.ErrObjectNotFound) {
 			return "", fmt.Errorf("unable to fetch hash for %q: %w", ref, err)
 		}
 	}
