@@ -59,7 +59,10 @@ func TestResolveVersion_worktrees(t *testing.T) {
 func repoWithLinkedWorktree(t *testing.T) (mainPath, linkedPath, head string) {
 	t.Helper()
 
+	// note: t.TempDir() cleanup is strict, which is the point -- windows cannot unlink a file that
+	// is still open, so a leaked handle in the repo open path fails this test there
 	root := t.TempDir()
+
 	mainPath = filepath.Join(root, "main")
 	linkedPath = filepath.Join(root, "linked")
 
